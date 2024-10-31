@@ -3,84 +3,76 @@ package telegram
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/nndergunov/stickerify_tgbot/pkg/logger"
-	"github.com/nndergunov/stickerify_tgbot/pkg/photoconverter"
 	"gopkg.in/telebot.v3"
+
+	"github.com/mykysha/StickerifierBot/pkg/photoconverter"
 )
 
+var errEmptyToken = errors.New("empty token")
+
 type Client struct {
-	log logger.Logger
 	bot *telebot.Bot
 }
 
-// NewClient creates a new Telegram client.
-func NewClient(log logger.Logger, token string) (*Client, error) {
-	if log == nil {
-		log = logger.NewDefault(os.Stdout, "telegram client")
-	}
-
+func NewClient(token string) (*Client, error) {
 	if token == "" {
-		return nil, fmt.Errorf("failed to create Telegram client: %w", ErrEmptyToken)
+		return nil, fmt.Errorf("failed to create Telegram client: %w", errEmptyToken)
 	}
 
 	settings := telebot.Settings{
-		URL:         "",
 		Token:       os.Getenv("TELEGRAM_TOKEN"),
-		Updates:     0,
-		Poller:      nil,
 		Synchronous: true,
 		Verbose:     true,
-		ParseMode:   "",
-		OnError:     nil,
-		Client:      nil,
-		Offline:     false,
 	}
 
 	tgBot, err := telebot.NewBot(settings)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("could not create bot %w", err)
 	}
 
-	c := &Client{
-		log: log,
+	client := &Client{
 		bot: tgBot,
 	}
 
 	tgBot.Handle(telebot.OnMedia, func(context telebot.Context) error {
-		return c.mediaHandler(context.Message())
+		return client.mediaHandler(context.Message())
 	})
 
 	tgBot.Handle(telebot.OnPhoto, func(context telebot.Context) error {
-		return c.photoHandler(context.Message())
+		return client.photoHandler(context.Message())
 	})
 
-	return c, nil
+	return client, nil
 }
 
-// mediaHandler handles incoming media messages.
-func (c *Client) mediaHandler(m *telebot.Message) error {
-	_, err := c.bot.Send(m.Chat, "Media message received")
-	if err != nil {
+func (c *Client) errorRespond(message *telebot.Message) {
+	if _, err := c.bot.Send(message.Chat, "Something went wrong. Please try again later."); err != nil {
+		return
+	}
+}
+
+func (c *Client) mediaHandler(message *telebot.Message) error {
+	if _, err := c.bot.Send(message.Chat, "Media message received"); err != nil {
 		return fmt.Errorf("could not send message %w", err)
 	}
 
-	// extract media from message
-	file, err := c.bot.File(m.Media().MediaFile())
+	file, err := c.bot.File(message.Media().MediaFile())
 	if err != nil {
-		c.errorRespond(m)
+		c.errorRespond(message)
 
 		return fmt.Errorf("could not download file %w", err)
 	}
 
-	err = c.fileManipulator(file, m)
-	if err != nil {
-		c.errorRespond(m)
+	if err = c.fileManipulator(file, message); err != nil {
+		c.errorRespond(message)
 
 		return fmt.Errorf("could not convert and resise file %w", err)
 	}
@@ -88,29 +80,24 @@ func (c *Client) mediaHandler(m *telebot.Message) error {
 	return nil
 }
 
-// photoHandler handles incoming photo messages.
-func (c *Client) photoHandler(m *telebot.Message) error {
-	_, err := c.bot.Send(m.Chat, "Photo message received")
-	if err != nil {
-		c.errorRespond(m)
+func (c *Client) photoHandler(message *telebot.Message) error {
+	if _, err := c.bot.Send(message.Chat, "Photo message received"); err != nil {
+		c.errorRespond(message)
 
 		return fmt.Errorf("could not send message %w", err)
 	}
 
-	// extract photo from message
-	photo := m.Photo
+	photo := message.Photo
 
-	// download photo
 	file, err := c.bot.File(photo.MediaFile())
 	if err != nil {
-		c.errorRespond(m)
+		c.errorRespond(message)
 
 		return fmt.Errorf("could not download file %w", err)
 	}
 
-	err = c.fileManipulator(file, m)
-	if err != nil {
-		c.errorRespond(m)
+	if err = c.fileManipulator(file, message); err != nil {
+		c.errorRespond(message)
 
 		return fmt.Errorf("could not convert and resise file %w", err)
 	}
@@ -118,53 +105,39 @@ func (c *Client) photoHandler(m *telebot.Message) error {
 	return nil
 }
 
-// fileManipulator further converts and returns photo from photo or media message.
-func (c *Client) fileManipulator(file io.ReadCloser, m *telebot.Message) error {
+func (c *Client) fileManipulator(file io.ReadCloser, message *telebot.Message) error {
 	buf := new(bytes.Buffer)
 
-	_, err := buf.ReadFrom(file)
-	if err != nil {
-		c.errorRespond(m)
+	if _, err := buf.ReadFrom(file); err != nil {
+		c.errorRespond(message)
 
 		return fmt.Errorf("could not read file %w", err)
 	}
 
 	png, err := photoconverter.ConvertToPNG(buf.Bytes())
 	if err != nil {
-		c.errorRespond(m)
+		c.errorRespond(message)
 
 		return fmt.Errorf("could not convert photo to png %w", err)
 	}
 
-	// send photo
 	pngPhoto := &telebot.Document{File: telebot.FromReader(bytes.NewReader(png))}
 
 	pngPhoto.FileName = time.Now().Format("2006-01-02_15-04-05") + ".png"
 	pngPhoto.MIME = "image/png"
 	pngPhoto.Caption = "Here is your photo! Now as PNG!"
 
-	_, err = c.bot.Send(m.Chat, pngPhoto)
-	if err != nil {
+	if _, err = c.bot.Send(message.Chat, pngPhoto); err != nil {
 		return fmt.Errorf("could not send photo %w", err)
 	}
 
 	return nil
 }
 
-// errorRespond sends error message to user.
-func (c *Client) errorRespond(m *telebot.Message) {
-	_, err := c.bot.Send(m.Chat, "Something went wrong. Please try again later.")
-	if err != nil {
-		return
-	}
-}
-
-// HandleWebHook handles serverless webhook communication.
-func (c *Client) HandleWebHook(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+func (c *Client) HandleWebHook(req *events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	update := new(telebot.Update)
 
-	err := json.Unmarshal([]byte(req.Body), update)
-	if err != nil {
+	if err := json.Unmarshal([]byte(req.Body), update); err != nil {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("could not decode incoming update %w", err)
 	}
 
@@ -172,6 +145,6 @@ func (c *Client) HandleWebHook(req events.APIGatewayProxyRequest) (events.APIGat
 
 	return events.APIGatewayProxyResponse{
 		Body:       "OK",
-		StatusCode: 200,
+		StatusCode: http.StatusOK,
 	}, nil
 }

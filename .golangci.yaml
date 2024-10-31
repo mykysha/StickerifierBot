@@ -1,0 +1,99 @@
+linters:
+  enable-all: true
+  disable:
+    - execinquery # Deprecated
+    - exportloopref # Deprecated
+    - gomnd # Deprecated
+
+    - depguard # By design
+    - exhaustruct # By design
+    - tagliatelle # By design
+
+issues:
+  fix: true
+
+linters-settings:
+
+  decorder:
+    disable-init-func-first-check: false
+
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      - encoding/json.Marshal
+      - encoding/json.MarshalIndent
+
+  errchkjson:
+    check-error-free-encoding: true
+
+  gci:
+    sections:
+      - standard 
+      - default 
+      - localmodule
+    custom-order: true
+
+  gocognit:
+    min-complexity: 10
+
+  gocritic:
+    enable-all: true
+
+  gocyclo:
+    min-complexity: 10
+
+  gofmt:
+    rewrite-rules:
+      - pattern: 'interface{}'
+        replacement: 'any'
+      - pattern: 'a[b:len(a)]'
+        replacement: 'a[b:]'
+
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # Premature optimization
+
+  grouper:
+    const-require-single-const: true
+    import-require-single-import: true
+    var-require-single-var: true
+
+  mnd:
+    ignored-numbers:
+      - '2'
+
+  revive:
+    enable-all-rules: true
+    rules:
+      - name: add-constant
+        disabled: true # Duplicates goconst and mnd
+      - name: cognitive-complexity
+        disabled: true # Duplicates gocognit
+      - name: line-length-limit
+        disabled: true # Duplicates lll
+
+  testifylint:
+    enable-all: true
+
+  usestdlibvars:
+    time-month: true
+    time-layout: true
+    crypto-hash: true
+    default-rpc-path: true
+    sql-isolation-level: true
+    tls-signature-scheme: true
+    constant-kind: true
+
+  unconvert:
+    safe: true
+  
+  unparam:
+    check-exported: true
+
+  unused:
+    field-writes-are-uses: false
+    exported-fields-are-used: false
+    parameters-are-used: false
+    local-variables-are-used: false

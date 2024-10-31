@@ -4,8 +4,8 @@ import (
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/nndergunov/stickerify_tgbot/pkg/logger"
-	"github.com/nndergunov/stickerify_tgbot/pkg/telegram"
+
+	"github.com/mykysha/StickerifierBot/pkg/telegram"
 )
 
 func main() {
@@ -15,9 +15,7 @@ func main() {
 		panic("TELEGRAM_TOKEN is not set")
 	}
 
-	tgLogger := logger.NewDefault(os.Stdout, "telegram")
-
-	client, err := telegram.NewClient(tgLogger, token)
+	client, err := telegram.NewClient(token)
 	if err != nil {
 		panic(err)
 	}
